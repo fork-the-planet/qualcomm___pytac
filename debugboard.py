@@ -120,7 +120,7 @@ class FtdiBoard(Board):
         Board.__init__(self)
         self.usb_device = usb_device
         conf = None
-        f = open(os.path.join(tac_config_path, "DeviceList.json"), "r")
+        f = open(os.path.join(tac_config_path, "devicelist.json"), "r")
         device_list = json.loads(f.read())
         f.close()
         catalog = device_list.get("catalog")
@@ -160,7 +160,7 @@ class PsocBoard(Board):
         Board.__init__(self)
         self.usb_device = usb_device
         conf = None
-        f = open(os.path.join(tac_config_path, "DeviceList.json"), "r")
+        f = open(os.path.join(tac_config_path, "devicelist.json"), "r")
         device_list = json.loads(f.read())
         f.close()
         catalog = device_list.get("catalog")
