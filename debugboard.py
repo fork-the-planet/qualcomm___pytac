@@ -130,8 +130,8 @@ class UnoQBoard(Board):
     def __init__(self, usb_device):
         Board.__init__(self)
         self.usb_device = usb_device
-        self.quick_methods.update({"powerOn": QuickMethod(self, "normalBoot")})
-        self.quick_methods.update({"bootToEDL": QuickMethod(self, "usbBoot")})
+        self.quick_methods.update({"powerOn": QuickMethod(self, "powerOn")})
+        self.quick_methods.update({"bootToEDL": QuickMethod(self, "bootToEDL")})
         self.quick_methods.update({"powerOff": QuickMethod(self, "powerOff")})
         self.quick_methods.update({"reset": QuickMethod(self, "reset")})
     def _ftdi_set_bitmode(self, bitmask):
@@ -142,13 +142,13 @@ class UnoQBoard(Board):
         wValue = bitmask | (BITMODE_CBUS << 8)
         self.usb_device.ctrl_transfer(bmRequestType, SIO_SET_BITMODE_REQUEST, wValue)
 
-    def normalBoot(self):
+    def powerOn(self):
         logger.debug("Power cycle to normal boot mode")
         self._ftdi_set_bitmode(0b01110100)
         sleep(PRE_RESET_DELAY)
         self._ftdi_set_bitmode(0b01110000)
 
-    def usbBoot(self):
+    def bootToEDL(self):
         logger.debug("Power cycle to USB boot mode")
         self._ftdi_set_bitmode(0b01110100)
         sleep(PRE_RESET_DELAY)

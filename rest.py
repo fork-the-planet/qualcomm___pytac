@@ -3,7 +3,7 @@
 import logging
 import sys
 from argparse import ArgumentParser
-from debugboard import Board
+from debugboard import Board, TACException
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
 from werkzeug.exceptions import BadRequest
