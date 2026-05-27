@@ -144,6 +144,7 @@ class Board(dict):
             new_script = fix_log_comment.sub(r'self.logComment("\1")', new_script)
 
             d = {}
+            # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
             exec(new_script, d)  # pylint: disable=exec-used
 
             # create ports
