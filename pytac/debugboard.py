@@ -46,6 +46,8 @@ class Board(dict):
     ID_PRODUCT_BUGHOPPER_V1 = 0x6015
     ID_VENDOR_BUGHOPPER_V2 = 0x2341
     ID_PRODUCT_BUGHOPPER_V2 = 0xB001
+    ID_VENDOR_PIC32CX = 0x04D8
+    ID_PRODUCT_PIC32CX = 0x000A
 
     @classmethod
     def create_from_config(cls, config_file_path):
@@ -85,6 +87,13 @@ class Board(dict):
                     sys.exit(1)
 
                 return BughopperV2Board(device)
+
+        # The PIC32CX board is driven purely over its CDC serial port and is not
+        # visible to libusb (pyusb can't read its descriptors), so it is detected
+        # via udev instead of usb.core.find.
+        if Pic32cxBoard.detect(serial):
+            logger.debug("Found PIC32CX Board")
+            return Pic32cxBoard(serial, tac_config_path)
 
     def __init__(self):
         self.ports = {}
@@ -520,6 +529,70 @@ class PsocBoard(Board):
             setattr(self, pin.command, pin.set)
 
 
+class Pic32cxBoard(Board):
+    @staticmethod
+    def detect(serial):
+        """Return True if a PIC32CX tty matching ``serial`` is present.
+
+        The PIC32CX board is not visible to libusb, so it is discovered via
+        udev by matching the serial number together with its USB VID/PID.
+        """
+        context = pyudev.Context()
+        for d in context.list_devices(subsystem="tty", ID_SERIAL_SHORT=serial):
+            try:
+                vid = int(d.get("ID_VENDOR_ID"), 16)
+                pid = int(d.get("ID_MODEL_ID"), 16)
+            except (TypeError, ValueError):
+                continue
+            if vid == Board.ID_VENDOR_PIC32CX and pid == Board.ID_PRODUCT_PIC32CX:
+                return True
+        return False
+
+    def __init__(self, serial, tac_config_path):
+        Board.__init__(self)
+        self.usb_device = lambda: None
+        self.usb_device.serial_number = serial
+        conf = None
+        f = open(os.path.join(tac_config_path, "devicelist.json"))
+        device_list = json.loads(f.read())
+        f.close()
+        catalog = device_list.get("catalog")
+        # The platform is identified by the part of the serial number before
+        # "XX", which matches the usb_descriptor field in devicelist.json.
+        self.usb_descriptor = serial.split("XX")[0]
+        conf_dict = next(
+            (x for x in catalog if x.get("usb_descriptor") == self.usb_descriptor),
+            None,
+        )
+        if conf_dict:
+            conf = os.path.join(
+                tac_config_path, os.path.basename(conf_dict.get("configPath"))
+            )
+
+        if conf is None:
+            logger.error("No matching PIC32CX config found")
+            sys.exit(1)
+
+        f = open(conf, "rb")
+        self.full_config = json.loads(f.read())
+        f.close()
+        self.parse_script()
+
+    def create_ports(self):
+        self.ports.update({0: Pic32cxPort(self.usb_device.serial_number)})
+
+    def create_pins(self):
+        for config in self.full_config.get("pins"):
+            if not config.get("enabled", True):
+                continue
+            pin = Pic32cxPin(self, config)
+            pin.setPort(self.ports.get(0))
+            logger.debug(f"Adding {pin.command}")
+            self.pins.update({f"{pin.pin_number}": pin})
+            self.commands.update({f"{pin.command}": f"{pin.command}"})
+            setattr(self, pin.command, pin.set)
+
+
 class QuickMethod(dict):
     def __init__(self, board, name):
         self.name = name
@@ -630,6 +703,35 @@ class PsocPin(Pin):
         self.initialize()
 
 
+class Pic32cxPin(Pin):
+    def __init__(self, board, config):
+        Pin.__init__(self, board, config)
+
+    def set(self, value):
+        lcl_value = None
+        try:
+            lcl_value = int(value)
+        except ValueError:
+            logger.error("Value has to be int")
+            logger.error(f"Received {value}")
+            return
+        super().set(lcl_value)
+        if not self.port:
+            logger.warning(f"No port set for pin {self.pin_number}")
+            return
+        logger.debug(f"Setting {self.pin_number} to {lcl_value}")
+        self.port.write(lcl_value, self.pin_number)
+
+    def initialize(self):
+        # PIC32CX configs define no initial pin value, and the reference TAC
+        # tool does not drive any pins on connect. Leave pins untouched until
+        # explicitly commanded so connecting does not actuate the board.
+        pass
+
+    def setPort(self, port):
+        super().setPort(port)
+
+
 class Port(dict):
     def __init__(self, bus, serial):
         self.serial = serial
@@ -708,6 +810,57 @@ class PsocPort(Port):
         else:
             logger.error("No expect connection")
             sys.exit(1)
+
+
+class Pic32cxPort(Port):
+    def __init__(self, serialid):
+        Port.__init__(self, None, serialid)
+        self.serial_port = None
+        context = pyudev.Context()
+        for d in context.list_devices(subsystem="tty", ID_SERIAL_SHORT=serialid):
+            self.serial_port = d.device_node
+            break
+
+        if self.serial_port is None:
+            logger.error(f"No serial port found for {serialid}")
+            sys.exit(1)
+
+        self.connection = serial.Serial()
+        self.connection.baudrate = 115200
+        self.connection.timeout = 0.5
+        self.connection.port = self.serial_port
+        try:
+            self.connection.open()
+        except serial.SerialException as e:
+            logger.error("Serial Exception")
+            logger.error(e)
+            sys.exit(1)
+
+        # Clear any pending data in the firmware's command buffer.
+        self.__send("echo 1")
+
+    def __send(self, message):
+        logger.debug(f"Sending: {message}")
+        self.connection.reset_input_buffer()
+        self.connection.write(f"{message}\n".encode())
+        self.connection.flush()
+        # Drain the firmware's reply so it doesn't leak into the next command.
+        response = self.connection.read_until().decode(errors="replace")
+        logger.debug(f"Response: {response!r}")
+
+    def write(self, value, pin=None):
+        if pin is None:
+            logger.warning("No pin selected")
+            return
+        # The firmware expects 'port 0' pins to be zero-padded to three digits.
+        pin_str = str(pin)
+        if len(pin_str) < 3:
+            pin_str = "0" + pin_str
+        self.__send(f"CONF:DIG:ON {int(bool(value))} (@{pin_str})")
+
+    def close(self):
+        if self.connection and self.connection.is_open:
+            self.connection.close()
 
 
 class FtdiPort(Port):
