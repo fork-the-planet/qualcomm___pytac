@@ -108,6 +108,22 @@ Once started, the shell prompt accepts commands generated from your board's conf
 
 Type `help` in the shell to list all commands available for your specific board.
 
+# Running a single command
+
+Use `--oneshot` to run one command and exit, without entering the interactive shell. This is
+handy for scripting:
+
+    pytac --serial <ID_SERIAL_SHORT> --oneshot bootToEDL
+    pytac --serial <ID_SERIAL_SHORT> --oneshot reset
+
+GPIO pin commands take an integer value (`1` to assert, `0` to deassert):
+
+    pytac --serial <ID_SERIAL_SHORT> --oneshot pkey 1
+    pytac --serial <ID_SERIAL_SHORT> --oneshot pkey 0
+
+The same commands available in the shell can be used here. An unknown command exits with an
+error listing the commands supported by your board.
+
 # Using as a service
 
     pytac --service --serial <ID_SERIAL_SHORT_1> [<ID_SERIAL_SHORT_2> ...]
