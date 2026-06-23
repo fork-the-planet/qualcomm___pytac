@@ -28,7 +28,6 @@ def make_f(quick_method):
 
 
 class AlpacaCmd(Cmd):
-
     def do_quit(self, line):
         print("Quitting")
         return True

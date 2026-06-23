@@ -157,7 +157,7 @@ class Board(dict):
 
             d = {}
             # nosemgrep: python.lang.security.audit.exec-detected.exec-detected
-            exec(new_script, d)  # pylint: disable=exec-used
+            exec(new_script, d)
 
             # create ports
             self.create_ports()
@@ -165,7 +165,9 @@ class Board(dict):
             # create pins
             self.create_pins()
 
-            for name in d.keys():  # pylint: disable=consider-iterating-dictionary
+            # iterate keys explicitly: this is an exec'd namespace and the
+            # `.keys()` form is load-bearing here (see config-parsing history)
+            for name in d.keys():  # noqa: SIM118
                 if not name.startswith("__"):
                     logger.debug(f"Adding {name}")
                     self.quick_methods.update({name: QuickMethod(self, name)})
@@ -360,7 +362,7 @@ class FtdiBoard(Board):
         conf = os.path.join(
             tac_config_path, "TAC_FTDI_13.tcnf"
         )  # default config for FTDI Alpaca-lite
-        f = open(os.path.join(tac_config_path, "devicelist.json"), "r")
+        f = open(os.path.join(tac_config_path, "devicelist.json"))
         device_list = json.loads(f.read())
         f.close()
         catalog = device_list.get("catalog")
@@ -407,7 +409,7 @@ class PsocBoard(Board):
         Board.__init__(self)
         self.usb_device = usb_device
         conf = None
-        f = open(os.path.join(tac_config_path, "devicelist.json"), "r")
+        f = open(os.path.join(tac_config_path, "devicelist.json"))
         device_list = json.loads(f.read())
         f.close()
         catalog = device_list.get("catalog")
@@ -470,8 +472,8 @@ class PsocBoard(Board):
         serial_port = None
         context = pyudev.Context()
         for d in context.list_devices(ID_SERIAL_SHORT=self.usb_device.serial_number):
-            for l in d.device_links:
-                serial_port = l
+            for link in d.device_links:
+                serial_port = link
                 break
 
         logger.info(f"Opening {serial_port}")
@@ -655,8 +657,8 @@ class PsocPort(Port):
         self.serial_port = None
         context = pyudev.Context()
         for d in context.list_devices(ID_SERIAL_SHORT=serialid):
-            for l in d.device_links:
-                self.serial_port = l
+            for link in d.device_links:
+                self.serial_port = link
                 break
 
         self.expect_connection = None
