@@ -10,8 +10,8 @@ import sys
 from time import sleep
 from types import MethodType
 
-import pyudev
 import serial
+import serial.tools.list_ports
 import usb
 from pexpect import fdpexpect
 from pyftdi.gpio import GpioAsyncController
@@ -67,48 +67,64 @@ class Board(dict):
             (cls.ID_VENDOR_FTDI, cls.ID_PRODUCT_FTDI): "FTDI",
             (cls.ID_VENDOR_QCOM, cls.ID_PRODUCT_QCOM): "PSOC",
             (cls.ID_VENDOR_BUGHOPPER_V2, cls.ID_PRODUCT_BUGHOPPER_V2): "Bughopper V2",
+            (cls.ID_VENDOR_PIC32CX, cls.ID_PRODUCT_PIC32CX): "PIC32CX",
         }
+
+    @staticmethod
+    def _serial_ports():
+        """Yield connected serial ports in a cross-platform way.
+
+        Uses ``pyserial``'s ``list_ports`` instead of ``pyudev`` so the tool
+        works on macOS and Windows as well as Linux (``pyudev`` depends on
+        ``libudev``, which only exists on Linux).
+        """
+        yield from serial.tools.list_ports.comports()
 
     @classmethod
     def list_boards(cls):
         """Enumerate connected debug boards via their serial (tty) devices.
 
-        Boards are discovered by walking the ``tty`` subsystem (the same
-        place a board's serial port is found when driving it) and reading
-        the udev ``ID_SERIAL_SHORT`` / ``ID_VENDOR_ID`` / ``ID_MODEL_ID``
-        properties. Using the tty device rather than the parent USB device
-        ensures the serial is available for all boards, including pic32cx.
+        Boards are discovered by walking the connected serial ports (the same
+        place a board's serial port is found when driving it) and reading the
+        ``serial_number`` / ``vid`` / ``pid`` reported by ``pyserial``. Using
+        the serial port rather than the parent USB device ensures the serial
+        number is available for all boards, including pic32cx.
 
         Returns a list of dicts with the board ``type``, USB ``serial``
         number and ``vid``/``pid``, de-duplicated by serial (a board may
-        expose more than one tty interface).
+        expose more than one serial interface).
         """
         known = cls.known_boards()
-        context = pyudev.Context()
         boards = []
         seen = set()
-        for device in context.list_devices(subsystem="tty"):
-            props = device.properties
-            serial = props.get("ID_SERIAL_SHORT")
-            if not serial or serial in seen:
+        for port in cls._serial_ports():
+            serial_short = port.serial_number
+            if not serial_short or serial_short in seen:
                 continue
-            try:
-                vid = int(props.get("ID_VENDOR_ID", ""), 16)
-                pid = int(props.get("ID_MODEL_ID", ""), 16)
-            except ValueError:
+            if port.vid is None or port.pid is None:
                 continue
+            vid = port.vid
+            pid = port.pid
             board_type = known.get((vid, pid))
             if board_type is None:
                 continue
-            seen.add(serial)
+            seen.add(serial_short)
             boards.append(
                 {
                     "type": board_type,
-                    "serial": serial,
+                    "serial": serial_short,
                     "vid": vid,
                     "pid": pid,
                 }
             )
+
+        # The PIC32CX board also exposes an onboard FTDI FT4232H as a
+        # UART/SPI bridge, which enumerates with the same VID/PID as a
+        # standalone FTDI Alpaca board. It is not a separate debug board, so
+        # drop it whenever a PIC32CX board is also present.
+        if any(board["type"] == "PIC32CX" for board in boards):
+            boards = [board for board in boards if board["type"] != "FTDI"]
+
         return boards
 
     @classmethod
@@ -613,10 +629,9 @@ class PsocBoard(Board):
     def __get_board_id(self):
         # connect to serial and call "getboardid"
         serial_port = None
-        context = pyudev.Context()
-        for d in context.list_devices(ID_SERIAL_SHORT=self.usb_device.serial_number):
-            for link in d.device_links:
-                serial_port = link
+        for port in serial.tools.list_ports.comports():
+            if port.serial_number == self.usb_device.serial_number:
+                serial_port = port.device
                 break
 
         logger.info(f"Opening {serial_port}")
@@ -666,20 +681,22 @@ class PsocBoard(Board):
 
 class Pic32cxBoard(Board):
     @staticmethod
-    def detect(serial):
-        """Return True if a PIC32CX tty matching ``serial`` is present.
+    def detect(serial_number):
+        """Return True if a PIC32CX tty matching ``serial_number`` is present.
 
         The PIC32CX board is not visible to libusb, so it is discovered via
-        udev by matching the serial number together with its USB VID/PID.
+        the serial port by matching the serial number together with its USB
+        VID/PID.
         """
-        context = pyudev.Context()
-        for d in context.list_devices(subsystem="tty", ID_SERIAL_SHORT=serial):
-            try:
-                vid = int(d.get("ID_VENDOR_ID"), 16)
-                pid = int(d.get("ID_MODEL_ID"), 16)
-            except (TypeError, ValueError):
+        for port in serial.tools.list_ports.comports():
+            if port.serial_number != serial_number:
                 continue
-            if vid == Board.ID_VENDOR_PIC32CX and pid == Board.ID_PRODUCT_PIC32CX:
+            if port.vid is None or port.pid is None:
+                continue
+            if (
+                port.vid == Board.ID_VENDOR_PIC32CX
+                and port.pid == Board.ID_PRODUCT_PIC32CX
+            ):
                 return True
         return False
 
@@ -705,7 +722,19 @@ class Pic32cxBoard(Board):
             )
 
         if conf is None:
-            logger.error("No matching PIC32CX config found")
+            logger.error(
+                "No matching PIC32CX config found for usb_descriptor %r "
+                "(serial %s). Known usb_descriptors: %s",
+                self.usb_descriptor,
+                serial,
+                ", ".join(
+                    sorted(
+                        x.get("usb_descriptor")
+                        for x in catalog
+                        if x.get("usb_descriptor")
+                    )
+                ),
+            )
             sys.exit(1)
 
         f = open(conf, "rb")
@@ -893,10 +922,9 @@ class PsocPort(Port):
     def __init__(self, serialid):
         Port.__init__(self, None, serialid)
         self.serial_port = None
-        context = pyudev.Context()
-        for d in context.list_devices(ID_SERIAL_SHORT=serialid):
-            for link in d.device_links:
-                self.serial_port = link
+        for port in serial.tools.list_ports.comports():
+            if port.serial_number == serialid:
+                self.serial_port = port.device
                 break
 
         self.expect_connection = None
@@ -952,10 +980,10 @@ class Pic32cxPort(Port):
     def __init__(self, serialid):
         Port.__init__(self, None, serialid)
         self.serial_port = None
-        context = pyudev.Context()
-        for d in context.list_devices(subsystem="tty", ID_SERIAL_SHORT=serialid):
-            self.serial_port = d.device_node
-            break
+        for port in serial.tools.list_ports.comports():
+            if port.serial_number == serialid:
+                self.serial_port = port.device
+                break
 
         if self.serial_port is None:
             logger.error(f"No serial port found for {serialid}")
