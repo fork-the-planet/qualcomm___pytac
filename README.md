@@ -20,6 +20,24 @@ Alternatively, for development in a virtualenv:
 
 Run `pytac -h` to see all available options.
 
+## System dependencies
+
+PyTAC uses `hidapi` for HID-based debug boards, including Bughopper V2.
+Install the native HIDAPI library before installing or running `pytac`.
+
+### Ubuntu / Debian
+
+```bash
+sudo apt update
+sudo apt install -y libhidapi-hidraw0 libhidapi-libusb0
+```
+
+### Fedora
+
+```bash
+sudo dnf install -y hidapi
+```
+
 ## USB permissions
 
 By default, USB devices are not accessible without root. Create a udev rule for your board:
