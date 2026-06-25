@@ -15,6 +15,8 @@ import usb
 from pexpect import fdpexpect
 from pyftdi.gpio import GpioAsyncController
 
+from . import DEFAULT_CONFIG_FILENAME
+
 logger = logging.getLogger()
 
 try:
@@ -423,9 +425,17 @@ class FtdiBoard(Board):
     def __init__(self, usb_device, tac_config_path):
         Board.__init__(self)
         self.usb_device = usb_device
-        conf = os.path.join(
-            tac_config_path, "TAC_FTDI_13.tcnf"
-        )  # default config for FTDI Alpaca-lite
+        # Default config for FTDI Alpaca-Lite. "installconfigs" installs it as
+        # default.tcnf; the bundled package ships it as TAC_FTDI_13.tcnf.
+        conf = os.path.join(tac_config_path, DEFAULT_CONFIG_FILENAME)
+        if not os.path.exists(conf):
+            logger.warning(
+                "%s not found in %s; falling back to TAC_FTDI_13.tcnf. "
+                "Run 'pytac installconfigs' to install the full config set.",
+                DEFAULT_CONFIG_FILENAME,
+                tac_config_path,
+            )
+            conf = os.path.join(tac_config_path, "TAC_FTDI_13.tcnf")
         f = open(os.path.join(tac_config_path, "devicelist.json"))
         device_list = json.loads(f.read())
         f.close()

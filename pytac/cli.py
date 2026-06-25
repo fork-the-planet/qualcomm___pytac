@@ -7,7 +7,7 @@ import logging
 import sys
 from argparse import ArgumentParser
 
-from . import DEFAULT_TAC_CONFIG_PATH, __version__
+from . import DEFAULT_CONFIG_REPOSITORY, __version__, default_tac_config_path
 
 logger = logging.getLogger()
 
@@ -45,9 +45,11 @@ def build_parser():
     )
     common.add_argument(
         "--tac-config-path",
-        default=DEFAULT_TAC_CONFIG_PATH,
+        default=default_tac_config_path(),
         help="Path to directory with TAC configs (devicelist.json + .tcnf "
-        "files). Required for FTDI/PSOC boards; Bughopper boards need no configs.",
+        "files). Required for FTDI/PSOC boards; Bughopper boards need no configs. "
+        "Defaults to the configs installed by 'installconfigs', else those "
+        "bundled with the package.",
     )
 
     subparsers = parser.add_subparsers(dest="mode", required=True, metavar="COMMAND")
@@ -78,6 +80,33 @@ def build_parser():
     oneshot.add_argument(
         "--config-file-path",
         help="Path to a single config file; use for debugging the config file syntax.",
+    )
+
+    installconfigs = subparsers.add_parser(
+        "installconfigs",
+        parents=[base],
+        help="Download TAC config files (.tcnf + devicelist.json) from the "
+        "config repository",
+    )
+    installconfigs.add_argument(
+        "--config-repository",
+        default=DEFAULT_CONFIG_REPOSITORY,
+        help="Config repository URL to fetch configs from (default: %(default)s)",
+    )
+    installconfigs.add_argument(
+        "--local-path",
+        help="Directory to install configs into (default: the platformdirs "
+        "user data directory for pytac)",
+    )
+    installconfigs.add_argument(
+        "--ref",
+        default="HEAD",
+        help="Git ref (branch, tag, or commit) to fetch from (default: %(default)s)",
+    )
+    installconfigs.add_argument(
+        "--repository-path",
+        default="configurations",
+        help="Path within the repository holding the configs (default: %(default)s)",
     )
 
     service = subparsers.add_parser(
@@ -120,6 +149,15 @@ def main(argv=None):
 
     if args.mode == "list":
         _list_boards()
+    elif args.mode == "installconfigs":
+        from .installconfigs import install_configs
+
+        install_configs(
+            args.config_repository,
+            args.local_path,
+            args.ref,
+            args.repository_path,
+        )
     elif args.mode == "service":
         if not args.serial:
             parser.error("service requires --serial")

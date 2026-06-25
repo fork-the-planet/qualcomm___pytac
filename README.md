@@ -38,12 +38,33 @@ Then make sure your user is in the `plugdev` group (log out and back in after):
 config files.
 
 **All other debug boards (FTDI, PSOC) require configuration files** that are NOT shipped with
-pytac. You must obtain them yourself before these boards will work:
+pytac. The easiest way to obtain them is the `installconfigs` subcommand, which downloads every
+`.tcnf` file and `devicelist.json` from the
+[qcom-test-automation-controller](https://github.com/qualcomm/qcom-test-automation-controller/tree/main/configurations)
+project:
 
-1. Copy the `configurations/` directory (the `.tcnf` files and `devicelist.json`) from the
-   [qcom-test-automation-controller](https://github.com/qualcomm/qcom-test-automation-controller/tree/main/configurations)
-   project into a directory of your choice.
-2. Point pytac at that directory with `--tac-config-path <dir>`.
+    pytac installconfigs
+
+With no arguments it fetches from the default config repository and installs into a per-user
+data directory (resolved with [platformdirs](https://pypi.org/project/platformdirs/), e.g.
+`~/.local/share/pytac` on Linux). Once that directory is populated, the board subcommands use it
+automatically as the default `--tac-config-path`. Override either with:
+
+    pytac installconfigs \
+      --config-repository https://github.com/qualcomm/qcom-test-automation-controller/ \
+      --local-path /path/to/install \
+      --ref main \
+      --repository-path configurations
+
+`--ref` selects the git ref (branch, tag, or commit; default `HEAD`) and `--repository-path` the
+directory within the repository to fetch from (default `configurations`).
+
+`installconfigs` also copies the default FTDI Alpaca-Lite config (which has no upstream `.tcnf`
+file) in as `default.tcnf` and rewrites empty `configPath` entries in `devicelist.json` to point
+at it.
+
+You can also copy the `configurations/` directory by hand and point pytac at it with
+`--tac-config-path <dir>`.
 
 Note: some configs in qcom-test-automation-controller currently have syntax issues; pick the
 ones that match your board.
