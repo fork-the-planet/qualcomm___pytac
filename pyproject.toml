@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff==0.15.17"]
+dev = ["ruff==0.15.17", "pytest"]
 
 [project.scripts]
 pytac = "pytac.cli:main"
@@ -39,6 +39,10 @@ packages = ["pytac"]
 
 [tool.setuptools.package-data]
 pytac = ["tac_configs/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 # Ruff configuration (replaces black, isort and pylint)
 [tool.ruff]
