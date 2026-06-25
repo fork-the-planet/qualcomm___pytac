@@ -3,7 +3,7 @@
 
 PY_FILES := $(shell git ls-files '*.py')
 
-.PHONY: lint format install-dev
+.PHONY: lint format install-dev test
 
 # Install the linting/formatting toolchain (ruff).
 install-dev:
@@ -19,3 +19,7 @@ lint:
 format:
 	ruff check --fix $(PY_FILES)
 	ruff format $(PY_FILES)
+
+# Run the test suite.
+test:
+	pytest
