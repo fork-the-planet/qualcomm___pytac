@@ -214,6 +214,13 @@ class Board(dict):
                     var_re = re.compile(rf"\${var_name}")
                     new_script = var_re.sub(variable["default_value"], new_script)
 
+            # remove lines that start with // (// is a valid comment)
+            new_script = "\n".join(
+                line
+                for line in new_script.splitlines()
+                if not line.lstrip().startswith("//")
+            )
+
             # remove commented lines
             fix_comments = re.compile(r"\/\/.*")
             new_script = fix_comments.sub("\r", new_script)
