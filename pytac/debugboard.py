@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import json
+import keyword
 import logging
 import os
 import re
@@ -201,10 +202,42 @@ class Board(dict):
     def create_ports(self):
         raise NotImplementedError()
 
+    @staticmethod
+    def _sanitize_name(name):
+        # Turn an arbitrary command name into a valid Python identifier.
+        sanitized = re.sub(r"\W", "_", name)
+        if not sanitized or not (sanitized[0].isalpha() or sanitized[0] == "_"):
+            # identifiers may not start with a digit (e.g. "12vpoweroff")
+            sanitized = f"_{sanitized}"
+        if keyword.iskeyword(sanitized):
+            sanitized = f"{sanitized}_"
+        return sanitized
+
     def parse_script(self):
         if self.full_config:
             initial_script = self.full_config["script"]
             new_script = initial_script
+
+            # Some configs use command names that aren't valid Python
+            # identifiers (e.g. "12vpoweroff" starts with a digit). The script
+            # is converted to Python and exec'd, and create_pins later does
+            # setattr(self, pin.command, ...), so such names must be renamed
+            # consistently in both the script and the pin command they map to.
+            rename_map = {}
+            for pin in self.full_config.get("pins", []):
+                command = pin.get("command")
+                if command and (
+                    not command.isidentifier() or keyword.iskeyword(command)
+                ):
+                    if command not in rename_map:
+                        rename_map[command] = self._sanitize_name(command)
+                    pin["command"] = rename_map[command]
+
+            for old_name, new_name in rename_map.items():
+                logger.debug(f"Renaming command {old_name} to {new_name}")
+                name_re = re.compile(rf"\b{re.escape(old_name)}\b")
+                new_script = name_re.sub(new_name, new_script)
+
             # replace variables with actual values
             variables = self.full_config.get("variables", [])
             for variable in variables:
