@@ -173,6 +173,31 @@ class Board(dict):
     def create_pins(self):
         raise NotImplementedError()
 
+    def _enabled_pin_commands(self):
+        # Command names claimed by enabled pins. A disabled pin is only
+        # skipped when its command collides with one of these (see the
+        # create_pins implementations).
+        #
+        # This is computed once, up front, from the full config so the
+        # decision does not depend on the order pins are processed in: a
+        # disabled pin is dropped whether it is seen before or after the
+        # enabled pin it collides with.
+        return {
+            p.get("command")
+            for p in self.full_config.get("pins", [])
+            if p.get("enabled", True)
+        }
+
+    def _skip_disabled_pin(self, pin_config, enabled_commands):
+        # Disabled pins used to be dropped unconditionally to avoid name
+        # collisions when two pins share a command and only one is enabled.
+        # Now a disabled pin is only ignored when it actually collides with
+        # an enabled pin; otherwise it is added like any other pin.
+        return (
+            not pin_config.get("enabled", True)
+            and pin_config.get("command") in enabled_commands
+        )
+
     def create_ports(self):
         raise NotImplementedError()
 
@@ -264,7 +289,10 @@ class DummyBoard(Board):
 
     def create_pins(self):
         logger.debug("creating pins")
+        enabled_commands = self._enabled_pin_commands()
         for config in self.full_config.get("pins"):
+            if self._skip_disabled_pin(config, enabled_commands):
+                continue
             pin = DummyPin(self, config)
             pin.setPort(self.ports.get(0))
             logger.debug(f"Adding {pin.command}")
@@ -467,8 +495,9 @@ class FtdiBoard(Board):
                 )
 
     def create_pins(self):
+        enabled_commands = self._enabled_pin_commands()
         for p in self.full_config.get("pins"):
-            if not p.get("enabled", True):
+            if self._skip_disabled_pin(p, enabled_commands):
                 continue
             pin = FtdiPin(self, p)
             pin.setPort(self.ports.get(pin.bus))
@@ -583,8 +612,9 @@ class PsocBoard(Board):
         self.ports.update({0: PsocPort(self.usb_device.serial_number)})
 
     def create_pins(self):
+        enabled_commands = self._enabled_pin_commands()
         for config in self.full_config.get("pins"):
-            if not config.get("enabled", True):
+            if self._skip_disabled_pin(config, enabled_commands):
                 continue
             pin = PsocPin(self, config)
             pin.setPort(self.ports.get(0))
@@ -647,8 +677,9 @@ class Pic32cxBoard(Board):
         self.ports.update({0: Pic32cxPort(self.usb_device.serial_number)})
 
     def create_pins(self):
+        enabled_commands = self._enabled_pin_commands()
         for config in self.full_config.get("pins"):
-            if not config.get("enabled", True):
+            if self._skip_disabled_pin(config, enabled_commands):
                 continue
             pin = Pic32cxPin(self, config)
             pin.setPort(self.ports.get(0))
