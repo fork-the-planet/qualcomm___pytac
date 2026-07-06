@@ -46,6 +46,12 @@ By default, USB devices are not accessible without root. Create a udev rule for 
       | sudo tee /etc/udev/rules.d/99-alpaca.rules
     sudo udevadm control --reload-rules && sudo udevadm trigger
 
+Bughopper V2 also exposes a HID interface, so it needs a `hidraw` rule:
+
+    echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="2341", ATTRS{idProduct}=="b001", MODE="0660", GROUP="plugdev", TAG+="uaccess"' \
+      | sudo tee /etc/udev/rules.d/99-bughopper-v2.rules
+    sudo udevadm control --reload-rules && sudo udevadm trigger
+
 Then make sure your user is in the `plugdev` group (log out and back in after):
 
     sudo usermod -aG plugdev $USER
