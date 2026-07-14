@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Fetches the board configuration files from the upstream
+# qcom-test-automation-controller repository and runs the pytac test suite
+# against them, verifying that every upstream config loads through
+# Board.create_board() and exposes the required quick methods.
+#
+# The configs under test come purely from upstream; nothing in this repo's
+# (untracked) tac_configs/ is used. A failure here therefore means an upstream
+# config no longer loads cleanly.
+name: Config loading
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, so upstream config regressions surface even without a commit here.
+    - cron: "0 6 * * 1"
+
+jobs:
+  config-loading:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+    steps:
+      - name: Check out pytac
+        uses: actions/checkout@v6
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+          pip install .[dev]
+          pytac installconfigs
+
+      - name: Run config-loading tests
+        run: |
+          python -m pytest -v
