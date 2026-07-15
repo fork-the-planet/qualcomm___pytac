@@ -19,7 +19,6 @@ dependencies = [
     "pyusb",
     "pexpect",
     "pyserial",
-    "pyudev",
     "requests",
     "platformdirs",
     "hid",
